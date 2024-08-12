@@ -178,7 +178,7 @@ uint8_t VlanMasksArray[VLAN_TABLE_ENTRIES][4] = {
 };
 
 uint8_t VlanActionParamsArray[VLAN_TABLE_ENTRIES][1] = {
-    {0x1}
+    {0x0}
 };
 
 // sysfile path to open-nic-shell PCIe device
