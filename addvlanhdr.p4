@@ -122,10 +122,6 @@ header udp_t {
     bit<16> checksum;  // UDP checksum
 }
 
-header timestamp_t {
-    bit<64> ingress_timestamp;
-}
-
 // ****************************************************************************** //
 // ************************* S T R U C T U R E S  ******************************* //
 // ****************************************************************************** //
@@ -134,14 +130,12 @@ header timestamp_t {
 struct headers {
     eth_mac_t    eth;
     vlan_t       vlan;
-    vlan_t       new_vlan;
     ipv4_t       ipv4;
     ipv4_opt_t   ipv4opt;
     ipv6_t       ipv6;
     tcp_t        tcp;
     tcp_opt_t    tcpopt;
     udp_t        udp;
-    timestamp_t  timestamp;
 }
 
 // User metadata structure
@@ -150,8 +144,6 @@ struct metadata {
 	bit<16> tuser_size;
 	bit<16> tuser_src;
 	bit<16> tuser_dst;
-    //bit<64> ingress_timestamp;
-    //bit<32> egress_timestamp;
 }
 
 // User-defined errors 
@@ -174,8 +166,6 @@ parser MyParser(packet_in packet,
     }
     
     state parse_eth {
-        //change this to hdr ingress. Only packets are seen on FPGA, maybe not metadata.
-        //meta.ingress_timestamp = smeta.ingress_timestamp;
         packet.extract(hdr.eth);
         transition select(hdr.eth.type) {
             VLAN_TYPE : parse_vlan;
@@ -227,11 +217,6 @@ parser MyParser(packet_in packet,
         packet.extract(hdr.udp);
         transition accept;
     }
-
-    state parse_timestamp {
-        packet.extract(hdr.timestamp);
-        transition accept;
-    }
 }
 
 // ****************************************************************************** //
@@ -246,43 +231,25 @@ control MyProcessing(inout headers hdr,
    //     meta.port = port;
    // }
 
-    action forwardPacket() {
-    }
-
     action modifyHeader() {
         //hdr.vlan.setValid();
         hdr.vlan.vid = 0xA97;
-        //hdr.vlan.vid = 0xA98;
+    }
+
+    action forwardPacket() {
     }
     
     action dropPacket() {
 		smeta.drop = 1;
-        //hdr.timestamp.ingress_timestamp = smeta.ingress_timestamp;
-
     }
-
-    // action timestamp() {
-    //     hdr.timestamp = smeta.ingress_timestamp;
-    // }
 
     table forwardIPv4 {
         key             = { hdr.ipv4.dst : lpm; }
         actions         = { forwardPacket; 
-                            dropPacket; 
-                            }
+                            dropPacket; }
         size            = 1024;
 		num_masks       = 64;
         default_action  = forwardPacket;
-    }
-
-    table modHdr {
-        key = {hdr.ipv4.dst : exact;}
-        actions = {
-            modifyHeader;
-        }
-        size            = 1024;
-        default_action = modifyHeader;
-
     }
 
     table forwardIPv6 {
@@ -293,17 +260,28 @@ control MyProcessing(inout headers hdr,
         default_action  = forwardPacket;
     }
 
+    table modHdr {
+        key = {hdr.ipv4.dst : exact;}
+        actions = {
+            modifyHeader;
+            dropPacket;
+        }
+        size            = 1024;
+        default_action = modifyHeader;
+
+    }
+
     apply {
-
-        //hdr.new_vlan = hdr.vlan;
-        //hdr.vlan.setInvalid();
-        //modifyHeader.apply();
-        modHdr.apply();
-
+        
         if (smeta.parser_error != error.NoError) {
             dropPacket();
             return;
         }
+
+        if(hdr.vlan.isValid()) {
+            modHdr.apply();
+        }
+        
         
         if (hdr.ipv4.isValid())
             forwardIPv4.apply();
@@ -324,9 +302,7 @@ control MyDeparser(packet_out packet,
                    inout metadata meta, 
                    inout standard_metadata_t smeta) {
     apply {
-        packet.emit(hdr);
         packet.emit(hdr.eth);
-        packet.emit(hdr.new_vlan);
         packet.emit(hdr.vlan);
         packet.emit(hdr.ipv4);
         packet.emit(hdr.ipv4opt);
@@ -334,7 +310,6 @@ control MyDeparser(packet_out packet,
         packet.emit(hdr.tcp);
         packet.emit(hdr.tcpopt);
         packet.emit(hdr.udp);
-        packet.emit(hdr.timestamp);
     }
 }
 
