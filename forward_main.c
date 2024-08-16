@@ -73,7 +73,7 @@
 /****************************************************************************************************************************************************/
 
 #define EXAMPLE_NUM_TABLE_ENTRIES (4)
-#define VLAN_TABLE_ENTRIES (1)
+#define VLAN_TABLE_ENTRIES (4)
 
 #define DISPLAY_ERROR(ErrorCode)  printf("Error Code is value %s\n", XilVitisNetP4ReturnTypeToString(ErrorCode))
 
@@ -137,16 +137,17 @@ uint8_t ForwardKeyArray[EXAMPLE_NUM_TABLE_ENTRIES][4] = {
 uint8_t ForwardMasksArray[EXAMPLE_NUM_TABLE_ENTRIES][4] = {
     // Entry 1 : ForwardPkt
     // key :[ ipv4.dst=9aaa2010 ] 
-    {0xff, 0xff, 0xff, 0xff},
+    {0xff, 0xff, 0xff, 0x00},
     //Entry 2 : ForwardPkt
     // key :[ ipv4.dst=cc930a03 ] 
-    {0xff, 0xff, 0xff, 0xff},
+    {0xff, 0xff, 0xff, 0x00},
     // Entry 3 : ForwardPkt
     // key :[ ipv4.dst=6353a5ca ] 
-    {0xff, 0xff, 0xff, 0xff},
+    {0xff, 0xff, 0xff, 0x00},
     // Entry 4 : ForwardPkt
     // key :[ ipv4.dst=cc3d03d7 ]
-    {0xff, 0xff, 0xff, 0xff}
+    //{0x00, 0x00, 0x00, 0x00}
+    {0xff, 0xff, 0xff, 0x00}
 };
 
 /*
@@ -156,28 +157,57 @@ uint8_t ForwardMasksArray[EXAMPLE_NUM_TABLE_ENTRIES][4] = {
 uint8_t ForwardActionParamsArray[EXAMPLE_NUM_TABLE_ENTRIES][1] = {
     // Entry 1 : ForwardPkt
     // response :[0x0]
-    {0x0},
+    {0x1},
     // Entry 2 : ForwardPkt
     // response :[0x0]
-    {0x0},
+    {0x1},
     // Entry 3 : ForwardPkt
     //response :[0x0]
-    {0x0},
+    {0x1},
     // Entry 4 : ForwardPkt
     // response :[0x0]
-    {0x0},
+    {0x1},
 };
 
 uint8_t VlanKeyArray[VLAN_TABLE_ENTRIES][4] = {
-    {0x00, 0x00, 0x00, 0x00}
+    // // Entry 1 : ForwardPkt 
+    // // key :[ ipv4.dst=9aaa2010 ] 
+    // {0x9a, 0xaa, 0x20, 0x10},
+    // //Entry 2 : ForwardPkt
+    // // key :[ ipv4.dst=cc930a03 ] 
+    // {0xcc, 0x93, 0x0a, 0x03},
+    // // Entry 3 : ForwardPkt
+    // // key :[ ipv4.dst=6353a5ca ] 
+    // {0x63, 0x53, 0xa5, 0xca},
+    // // Entry 4 : ForwardPkt
+    // // key :[ ipv4.dst=cc3d03d7 ]
+    // {0xcc, 0x3d, 0x03, 0xd7},
+    {0x6B, 0x24, 0x6D, 0x55},
+    {0x0E, 0xA8, 0xA7, 0xA2},
+    {0x91, 0xB0, 0xA2, 0x48},
+    {0xE5, 0xCB, 0x77, 0x84}
 };
 
 uint8_t VlanMasksArray[VLAN_TABLE_ENTRIES][4] = {
-    {0x00, 0x00, 0x00, 0x00}
+    {0xff, 0xff, 0xff, 0x00},
+    {0xff, 0xff, 0xff, 0x00},
+    {0xff, 0xff, 0xff, 0x00},
+    {0xff, 0xff, 0xff, 0x00}
+    // {0x00, 0x00, 0x00, 0x00},
+    // {0x00, 0x00, 0x00, 0x00},
+    // {0x00, 0x00, 0x00, 0x00},
+    // {0x00, 0x00, 0x00, 0x00}
 };
 
-uint8_t VlanActionParamsArray[VLAN_TABLE_ENTRIES][1] = {
-    {0x0}
+uint8_t VlanActionParamsArray[VLAN_TABLE_ENTRIES][2] = {
+    // {0x0A, 0x97},
+    // {0x0A, 0x97},
+    // {0x0A, 0x97},
+    // {0x0A, 0x97},
+    {0x0A, 0x97},
+    {0x0A, 0x97},
+    {0x0A, 0x97},
+    {0x0A, 0x97}
 };
 
 
@@ -256,8 +286,148 @@ int main(void)
         DISPLAY_ERROR(Result);
         goto exit_example;
     }
+    
+//  */
+
+//modHdr code
+
+    printf("Initialize the Target Driver\n\r");
+    Result = XilVitisNetP4TargetInit(ForwardTargetCtxPtr, EnvIfPtr, &XilVitisNetP4TargetConfig_vitis_net_p4_0);
+    printf("Finish Initialize!\n\r");
+    if (Result == XIL_VITIS_NET_P4_TARGET_ERR_INCOMPATIBLE_SW_HW)
+    {
+        printf("Found IP and SW version differences:\n\r");
+        DisplayVitisNetP4Versions(ForwardTargetCtxPtr);
+        goto exit_example;
+    }
+    else if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+        goto exit_example;
+    }
 
     printf("Get Table Handle\n\r");
+    Result = XilVitisNetP4TargetGetTableByName(ForwardTargetCtxPtr, "modHdr", &ModHdrTableCtxPtr);
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+        goto target_exit;
+    }
+
+    printf("Get ActionId\n\r");
+    Result = XilVitisNetP4TableGetActionId(ModHdrTableCtxPtr, "modifyHeader", &ActionId);
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+        goto target_exit;
+    }
+    
+    XilVitisNetP4TableMode mode;
+    Result = XilVitisNetP4TableGetMode(ModHdrTableCtxPtr, &mode);
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+        goto target_exit;
+    }
+    printf("Table mode: %d\n\r", mode);
+
+    printf("\nInsert Tables.....");
+    for (Index = 0; Index < VLAN_TABLE_ENTRIES; Index++)
+    // Insert Table 
+    {
+        printf("Insert table entry %d\n\r", Index);
+
+        Result = XilVitisNetP4TableInsert(ModHdrTableCtxPtr,
+                                     VlanKeyArray[Index],
+                                     VlanMasksArray[Index], 
+                                     0x0, 
+                                     ActionId,
+                                     VlanActionParamsArray[Index]);
+        if (Result != XIL_VITIS_NET_P4_SUCCESS)
+        {
+            DISPLAY_ERROR(Result);
+            goto target_exit;
+        }
+        //sleep(1);
+    }
+//
+    printf("\nTable Querying... \n\r");
+    for (Index = 0; Index < VLAN_TABLE_ENTRIES; Index++)
+    {   
+        Result = XilVitisNetP4TableGetByKey(ModHdrTableCtxPtr,
+                                       VlanKeyArray[Index],
+                                       VlanMasksArray[Index], 
+                                       &ReadPriority, 
+                                       &ReadActionId,
+                                       ReadParamActionsBuffer);
+
+        if (Result == XIL_VITIS_NET_P4_SUCCESS)
+        {
+            printf("For table entry %d the Action Parameters are 0x%02X and Action Id is %d\n\r",
+                   Index,
+                   ReadParamActionsBuffer[0],
+                   ReadActionId);
+        }
+        else
+        {
+            DISPLAY_ERROR(Result);
+            goto target_exit;
+        }
+    }
+        //sleep(1);
+    
+    printf("\n Updating Tables...\n\r");
+    for (Index = 0; Index < VLAN_TABLE_ENTRIES; Index++){
+        printf("Updating the Response for table entry %d\n\r", Index);
+        Result = XilVitisNetP4TableUpdate(ModHdrTableCtxPtr,
+                                     VlanKeyArray[Index],
+                                     VlanMasksArray[Index], 
+                                     ActionId,
+                                     ReadParamActionsBuffer);
+
+        if (Result != XIL_VITIS_NET_P4_SUCCESS)
+        {
+            DISPLAY_ERROR(Result);
+            goto target_exit;
+        }
+    }
+
+/*
+    printf("\n Deleting Tables....\n\r");
+    for (Index = 0; Index < VLAN_TABLE_ENTRIES; Index++)
+    {
+        printf("Delete table entry %d\n\r", Index);
+        printf("The masks is %2x",VlanMasksArray[Index][1]);
+        Result = XilVitisNetP4TableDelete(ModHdrTableCtxPtr, VlanKeyArray[Index], VlanMasksArray[Index]);
+
+        if (Result == XIL_VITIS_NET_P4_SUCCESS)
+        {
+            // Not neccessary but checking if the key can be found to demo the usage //
+            Result = XilVitisNetP4TableGetByKey(ModHdrTableCtxPtr,
+                                           VlanKeyArray[Index],
+                                           VlanMasksArray[Index],
+                                           &ReadPriority, 
+                                           &ReadActionId,
+                                           ReadParamActionsBuffer);
+            if (Result != XIL_VITIS_NET_P4_CAM_ERR_KEY_NOT_FOUND)
+            {
+                printf("Error table entry %d is present\n\r", Index);
+            }
+            else
+            {
+                printf("\nTable entry %d successfully deleted\n\r", Index);
+            }
+        }
+        else
+        {
+            DISPLAY_ERROR(Result);
+            goto target_exit;
+        }
+    }
+*/
+//forward code
+
+printf("Get Table Handle\n\r");
     Result = XilVitisNetP4TargetGetTableByName(ForwardTargetCtxPtr, "forwardIPv4", &ForwardTableCtxPtr);
     if (Result != XIL_VITIS_NET_P4_SUCCESS)
     {
@@ -273,7 +443,7 @@ int main(void)
         goto target_exit;
     }
 
-    XilVitisNetP4TableMode mode;
+    //XilVitisNetP4TableMode modef;
     Result = XilVitisNetP4TableGetMode(ForwardTableCtxPtr, &mode);
     if (Result != XIL_VITIS_NET_P4_SUCCESS)
     {
@@ -291,7 +461,7 @@ int main(void)
         Result = XilVitisNetP4TableInsert(ForwardTableCtxPtr,
                                      ForwardKeyArray[Index],
                                      ForwardMasksArray[Index], 
-                                     0x0, 
+                                     0x1, 
                                      ActionId,
                                      ForwardActionParamsArray[Index]);
         if (Result != XIL_VITIS_NET_P4_SUCCESS)
@@ -342,9 +512,9 @@ int main(void)
             goto target_exit;
         }
     }
-
+/*
     printf("\n Deleting Tables....\n\r");
-    for (Index = 0; Index < EXAMPLE_NUM_TABLE_ENTRIES-2; Index++)
+    for (Index = 0; Index < EXAMPLE_NUM_TABLE_ENTRIES; Index++)
     {
         printf("Delete table entry %d\n\r", Index);
         printf("The masks is %2x", ForwardMasksArray[Index][1]);
@@ -374,143 +544,7 @@ int main(void)
             goto target_exit;
         }
     }
-//  */
-
-//modHdr code
-
-    printf("Initialize the Target Driver\n\r");
-    Result = XilVitisNetP4TargetInit(ForwardTargetCtxPtr, EnvIfPtr, &XilVitisNetP4TargetConfig_vitis_net_p4_0);
-    printf("Finish Initialize!\n\r");
-    if (Result == XIL_VITIS_NET_P4_TARGET_ERR_INCOMPATIBLE_SW_HW)
-    {
-        printf("Found IP and SW version differences:\n\r");
-        DisplayVitisNetP4Versions(ForwardTargetCtxPtr);
-        goto exit_example;
-    }
-    else if (Result != XIL_VITIS_NET_P4_SUCCESS)
-    {
-        DISPLAY_ERROR(Result);
-        goto exit_example;
-    }
-
-    printf("Get Table Handle\n\r");
-    Result = XilVitisNetP4TargetGetTableByName(ForwardTargetCtxPtr, "modHdr", &ModHdrTableCtxPtr);
-    if (Result != XIL_VITIS_NET_P4_SUCCESS)
-    {
-        DISPLAY_ERROR(Result);
-        goto target_exit;
-    }
-
-    printf("Get ActionId\n\r");
-    Result = XilVitisNetP4TableGetActionId(ModHdrTableCtxPtr, "modifyHeader", &ActionId);
-    if (Result != XIL_VITIS_NET_P4_SUCCESS)
-    {
-        DISPLAY_ERROR(Result);
-        goto target_exit;
-    }
-    // XilVitisNetP4TableMode mode;
-    Result = XilVitisNetP4TableGetMode(ModHdrTableCtxPtr, &mode);
-    if (Result != XIL_VITIS_NET_P4_SUCCESS)
-    {
-        DISPLAY_ERROR(Result);
-        goto target_exit;
-    }
-    printf("Table mode: %d\n\r", mode);
-
-    printf("\nInsert Tables.....");
-    for (Index = 0; Index < VLAN_TABLE_ENTRIES; Index++)
-    // Insert Table 
-    {
-        printf("Insert table entry %d\n\r", Index);
-
-        Result = XilVitisNetP4TableInsert(ModHdrTableCtxPtr,
-                                     VlanKeyArray[Index],
-                                     NULL, 
-                                     NULL, 
-                                     ActionId,
-                                     VlanActionParamsArray[Index]);
-        if (Result != XIL_VITIS_NET_P4_SUCCESS)
-        {
-            DISPLAY_ERROR(Result);
-            goto target_exit;
-        }
-        //sleep(1);
-    }
-//
-    printf("\nTable Querying... \n\r");
-    for (Index = 0; Index < VLAN_TABLE_ENTRIES; Index++)
-    {   
-        Result = XilVitisNetP4TableGetByKey(ModHdrTableCtxPtr,
-                                       VlanKeyArray[Index],
-                                       NULL, 
-                                       NULL, 
-                                       &ReadActionId,
-                                       ReadParamActionsBuffer);
-
-        if (Result == XIL_VITIS_NET_P4_SUCCESS)
-        {
-            printf("For table entry %d the Action Parameters are 0x%02X and Action Id is %d\n\r",
-                   Index,
-                   ReadParamActionsBuffer[0],
-                   ReadActionId);
-        }
-        else
-        {
-            DISPLAY_ERROR(Result);
-            goto target_exit;
-        }
-    }
-        //sleep(1);
-    
-    printf("\n Updating Tables...\n\r");
-    for (Index = 0; Index < VLAN_TABLE_ENTRIES; Index++){
-        printf("Updating the Response for table entry %d\n\r", Index);
-        Result = XilVitisNetP4TableUpdate(ModHdrTableCtxPtr,
-                                     VlanKeyArray[Index],
-                                     NULL, 
-                                     ActionId,
-                                     ReadParamActionsBuffer);
-
-        if (Result != XIL_VITIS_NET_P4_SUCCESS)
-        {
-            DISPLAY_ERROR(Result);
-            goto target_exit;
-        }
-    }
-
-
-    printf("\n Deleting Tables....\n\r");
-    for (Index = 0; Index < VLAN_TABLE_ENTRIES; Index++)
-    {
-        printf("Delete table entry %d\n\r", Index);
-        printf("The masks is %2x",VlanMasksArray[Index][1]);
-        Result = XilVitisNetP4TableDelete(ModHdrTableCtxPtr, VlanKeyArray[Index], NULL);
-
-        if (Result == XIL_VITIS_NET_P4_SUCCESS)
-        {
-            // Not neccessary but checking if the key can be found to demo the usage //
-            Result = XilVitisNetP4TableGetByKey(ModHdrTableCtxPtr,
-                                           VlanKeyArray[Index],
-                                           NULL,
-                                           NULL, 
-                                           &ReadActionId,
-                                           ReadParamActionsBuffer);
-            if (Result != XIL_VITIS_NET_P4_CAM_ERR_KEY_NOT_FOUND)
-            {
-                printf("Error table entry %d is present\n\r", Index);
-            }
-            else
-            {
-                printf("\nTable entry %d successfully deleted\n\r", Index);
-            }
-        }
-        else
-        {
-            DISPLAY_ERROR(Result);
-            goto target_exit;
-        }
-    }
-
+*/
 target_exit:
     printf ("target_exit: \n");
     printf("Closing pcimem device\n");
