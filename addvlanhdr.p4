@@ -232,8 +232,9 @@ control MyProcessing(inout headers hdr,
    // }
 
     action modifyHeader() {
-        //hdr.vlan.setValid();
-        hdr.vlan.vid = 0xA97;
+        hdr.vlan.setValid();
+        //hdr.vlan.vid = 0xA97;
+        hdr.vlan.vid = 0xA98;
     }
 
     action forwardPacket() {
@@ -252,16 +253,16 @@ control MyProcessing(inout headers hdr,
         default_action  = forwardPacket;
     }
 
-    table forwardIPv6 {
-        key             = { hdr.ipv6.dst : lpm; }
-        actions         = { forwardPacket; 
-                            dropPacket; }
-        size            = 1024;
-        default_action  = forwardPacket;
-    }
+  //  table forwardIPv6 {
+    //    key             = { hdr.ipv6.dst : lpm; }
+     //   actions         = { forwardPacket; 
+     //                       dropPacket; }
+     //   size            = 1024;
+      //  default_action  = forwardPacket;
+  //  }
 
     table modHdr {
-        key = {hdr.ipv4.dst : exact;}
+        key = {hdr.ipv4.dst : lpm;}
         actions = {
             modifyHeader;
             dropPacket;
@@ -278,17 +279,15 @@ control MyProcessing(inout headers hdr,
             return;
         }
 
-        if(hdr.vlan.isValid()) {
+        if(hdr.ipv4.isValid()) {
             modHdr.apply();
         }
         
         
         if (hdr.ipv4.isValid())
             forwardIPv4.apply();
-        else if (hdr.ipv6.isValid())
-            forwardIPv6.apply();
         else
-			forwardPacket();
+            forwardPacket();
         
     }
 } 
