@@ -233,8 +233,8 @@ control MyProcessing(inout headers hdr,
 
     action modifyHeader() {
         hdr.vlan.setValid();
-        //hdr.vlan.vid = 0xA97;
-        hdr.vlan.vid = 0xA98;
+        hdr.vlan.vid = 0xA97;
+        //hdr.vlan.vid = 0xA98;
     }
 
     action forwardPacket() {
