@@ -1,327 +1,800 @@
-// ----------------------------------------------------------------------- //
-//  This file is owned and controlled by Xilinx and must be used solely    //
-//  for design, simulation, implementation and creation of design files    //
-//  limited to Xilinx devices or technologies. Use with non-Xilinx         //
-//  devices or technologies is expressly prohibited and immediately        //
-//  terminates your license.                                               //
-//                                                                         //
-//  XILINX IS PROVIDING THIS DESIGN, CODE, OR INFORMATION "AS IS" SOLELY   //
-//  FOR USE IN DEVELOPING PROGRAMS AND SOLUTIONS FOR XILINX DEVICES.  BY   //
-//  PROVIDING THIS DESIGN, CODE, OR INFORMATION AS ONE POSSIBLE            //
-//  IMPLEMENTATION OF THIS FEATURE, APPLICATION OR STANDARD, XILINX IS     //
-//  MAKING NO REPRESENTATION THAT THIS IMPLEMENTATION IS FREE FROM ANY     //
-//  CLAIMS OF INFRINGEMENT, AND YOU ARE RESPONSIBLE FOR OBTAINING ANY      //
-//  RIGHTS YOU MAY REQUIRE FOR YOUR IMPLEMENTATION.  XILINX EXPRESSLY      //
-//  DISCLAIMS ANY WARRANTY WHATSOEVER WITH RESPECT TO THE ADEQUACY OF THE  //
-//  IMPLEMENTATION, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OR         //
-//  REPRESENTATIONS THAT THIS IMPLEMENTATION IS FREE FROM CLAIMS OF        //
-//  INFRINGEMENT, IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A  //
-//  PARTICULAR PURPOSE.                                                    //
-//                                                                         //
-//  Xilinx products are not intended for use in life support appliances,   //
-//  devices, or systems.  Use in such applications are expressly           //
-//  prohibited.                                                            //
-//                                                                         //
-//  (c) Copyright 1995-2019 Xilinx, Inc.                                   //
-//  All rights reserved.                                                   //
-// ----------------------------------------------------------------------- //
+/*
+-- (c) Copyright 2019 Xilinx, Inc. All rights reserved.
+--
+-- This file contains confidential and proprietary information
+-- of Xilinx, Inc. and is protected under U.S. and
+-- international copyright and other intellectual property
+-- laws.
+--
+-- DISCLAIMER
+-- This disclaimer is not a license and does not grant any
+-- rights to the materials distributed herewith. Except as
+-- otherwise provided in a valid license issued to you by
+-- Xilinx, and to the maximum extent permitted by applicable
+-- law: (1) THESE MATERIALS ARE MADE AVAILABLE "AS IS" AND
+-- WITH ALL FAULTS, AND XILINX HEREBY DISCLAIMS ALL WARRANTIES
+-- AND CONDITIONS, EXPRESS, IMPLIED, OR STATUTORY, INCLUDING
+-- BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, NON-
+-- INFRINGEMENT, OR FITNESS FOR ANY PARTICULAR PURPOSE; and
+-- (2) Xilinx shall not be liable (whether in contract or tort,
+-- including negligence, or under any other theory of
+-- liability) for any loss or damage of any kind or nature
+-- related to, arising under or in connection with these
+-- materials, including for any direct, or any indirect,
+-- special, incidental, or consequential loss or damage
+-- (including loss of data, profits, goodwill, or any type of
+-- loss or damage suffered as a result of any action brought
+-- by a third party) even if such damage or loss was
+-- reasonably foreseeable or Xilinx had been advised of the
+-- possibility of the same.
+--
+-- CRITICAL APPLICATIONS
+-- Xilinx products are not designed or intended to be fail-
+-- safe, or for use in any application requiring fail-safe
+-- performance, such as life-support or safety devices or
+-- systems, Class III medical devices, nuclear facilities,
+-- applications related to the deployment of airbags, or any
+-- other applications that could lead to death, personal
+-- injury, or severe property or environmental damage
+-- (individually and collectively, "Critical
+-- Applications"). Customer assumes the sole risk and
+-- liability of any use of Xilinx products in Critical
+-- Applications, subject only to applicable laws and
+-- regulations governing limitations on product liability.
+--
+-- THIS COPYRIGHT NOTICE AND DISCLAIMER MUST BE RETAINED AS
+-- PART OF THIS FILE AT ALL TIMES.
+--------------------------------------------------------------------------------
+*/
 
-#include <core.p4>
-#include <xsa.p4>
+/****************************************************************************************************************************************************/
+/* SECTION: Header includes */
+/****************************************************************************************************************************************************/
 
 /*
- * Forward Switch:
- * 
- * The forward design exemplifies the implementation the core of an IPv4/IPv6
- * network switch. IP destination address is used to perform an LPM search to 
- * determine the port where the packet needs to be redirected to. The IPv6 
- * table is setup to be implemented with an ternary CAM and the IPv4 table 
- * with a semi-ternary CAM.
- *
+ * The example designs include file should be present in the target/inc directory
+ * NOTE: This file that gives access to the generated configuration file
  */
+#include "include/vitis_net_p4_0_defs.h"
+#include "include/vitisnetp4_common.h"
 
-typedef bit<48>  MacAddr;
-typedef bit<32>  IPv4Addr;
-typedef bit<128> IPv6Addr;
+#include <stdio.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/types.h>
 
-const bit<16> VLAN_TYPE  = 0x8100;
-const bit<16> IPV4_TYPE  = 0x0800;
-const bit<16> IPV6_TYPE  = 0x86DD;
+/****************************************************************************************************************************************************/
+/* SECTION: Constants/macros */
+/****************************************************************************************************************************************************/
 
-const bit<8> TCP_PROT  = 0x06;
-const bit<8> UDP_PROT  = 0x11;
+#define EXAMPLE_NUM_TABLE_ENTRIES (4)
+#define VLAN_TABLE_ENTRIES (4)
 
-// ****************************************************************************** //
-// *************************** H E A D E R S  *********************************** //
-// ****************************************************************************** //
+#define DISPLAY_ERROR(ErrorCode)  printf("Error Code is value %s\n", XilVitisNetP4ReturnTypeToString(ErrorCode))
 
-header eth_mac_t {
-    MacAddr dmac; // Destination MAC address
-    MacAddr smac; // Source MAC address
-    bit<16> type; // Tag Protocol Identifier
-}
+#define CONVERT_BITS_TO_BYTES(NumBits) ((NumBits/XIL_VITIS_NET_P4_BITS_PER_BYTE) + ((NumBits % XIL_VITIS_NET_P4_BITS_PER_BYTE)? 1 : 0))
 
-header vlan_t {
-    bit<3>  pcp;  // Priority code point
-    bit<1>  cfi;  // Drop eligible indicator
-    bit<12> vid;  // VLAN identifier
-    bit<16> tpid; // Tag protocol identifier
-}
+/****************************************************************************************************************************************************/
+/* SECTION: Local function declarations*/
+/****************************************************************************************************************************************************/
+static void DisplayVitisNetP4Versions(XilVitisNetP4TargetCtx *CtxPtr);
 
-header ipv4_t {
-    bit<4>   version;  // Version (4 for IPv4)
-    bit<4>   hdr_len;  // Header length in 32b words
-    bit<8>   tos;      // Type of Service
-    bit<16>  length;   // Packet length in 32b words
-    bit<16>  id;       // Identification
-    bit<3>   flags;    // Flags
-    bit<13>  offset;   // Fragment offset
-    bit<8>   ttl;      // Time to live
-    bit<8>   protocol; // Next protocol
-    bit<16>  hdr_chk;  // Header checksum
-    IPv4Addr src;      // Source address
-    IPv4Addr dst;      // Destination address
-}
+XilVitisNetP4ReturnType XilVitisNetP4WordLogStub(XilVitisNetP4EnvIf *EnvIfPtr, const char *MessagePtr);
 
-header ipv4_opt_t {
-    varbit<320> options; // IPv4 options - length = (ipv4.hdr_len - 5) * 32
-}
+XilVitisNetP4ReturnType example_log_info(XilVitisNetP4EnvIf *EnvIfPtr, const char *MessagePtr);
 
-header ipv6_t {
-    bit<4>   version;    // Version = 6
-    bit<8>   priority;   // Traffic class
-    bit<20>  flow_label; // Flow label
-    bit<16>  length;     // Payload length
-    bit<8>   protocol;   // Next protocol
-    bit<8>   hop_limit;  // Hop limit
-    IPv6Addr src;        // Source address
-    IPv6Addr dst;        // Destination address
-}
 
-header tcp_t {
-    bit<16> src_port;   // Source port
-    bit<16> dst_port;   // Destination port
-    bit<32> seqNum;     // Sequence number
-    bit<32> ackNum;     // Acknowledgment number
-    bit<4>  dataOffset; // Data offset
-    bit<6>  resv;       // Offset
-    bit<6>  flags;      // Flags
-    bit<16> window;     // Window
-    bit<16> checksum;   // TCP checksum
-    bit<16> urgPtr;     // Urgent pointer
-}
+int device_open(char *file_name);
 
-header tcp_opt_t {
-    varbit<320> options; // TCP options - length = (tcp.dataOffset - 5) * 32
-}
+int device_close();
 
-header udp_t {
-    bit<16> src_port;  // Source port
-    bit<16> dst_port;  // Destination port
-    bit<16> length;    // UDP length
-    bit<16> checksum;  // UDP checksum
-}
+void device_write(uint32_t address, uint32_t data);
 
-// ****************************************************************************** //
-// ************************* S T R U C T U R E S  ******************************* //
-// ****************************************************************************** //
+uint32_t device_read(uint32_t address, uint32_t *data);
 
-// header structure
-struct headers {
-    eth_mac_t    eth;
-    vlan_t       vlan;
-    ipv4_t       ipv4;
-    ipv4_opt_t   ipv4opt;
-    ipv6_t       ipv6;
-    tcp_t        tcp;
-    tcp_opt_t    tcpopt;
-    udp_t        udp;
-}
+XilVitisNetP4ReturnType env_write(XilVitisNetP4EnvIf *EnvIfPtr, XilVitisNetP4AddressType Address, uint32_t WriteValue);
 
-// User metadata structure
-struct metadata {
-    //bit<9> port;
-	bit<16> tuser_size;
-	bit<16> tuser_src;
-	bit<16> tuser_dst;
-}
+XilVitisNetP4ReturnType env_read(XilVitisNetP4EnvIf *EnvIfPtr, XilVitisNetP4AddressType Address, uint32_t *ReadValuePtr);
 
-// User-defined errors 
-error {
-    InvalidIPpacket,
-    InvalidTCPpacket
-}
 
-// ****************************************************************************** //
-// *************************** P A R S E R  ************************************* //
-// ****************************************************************************** //
 
-parser MyParser(packet_in packet, 
-                out headers hdr, 
-                inout metadata meta, 
-                inout standard_metadata_t smeta) {
-    
-    state start {
-        transition parse_eth;
+
+
+
+/****************************************************************************************************************************************************/
+/* SECTION: Global variables */
+/****************************************************************************************************************************************************/
+
+char sysfile_path[] = "/sys/devices/pci0000:3a/0000:3a:00.0/0000:3b:00.0/resource2";
+
+typedef struct ExampleUserContext
+{
+    XilVitisNetP4AddressType VitisNetP4Address;
+} ExampleUserContext;
+
+/* Key and Responses based on the five Tuple, using Big Endian array */
+
+uint8_t ForwardKeyArray[EXAMPLE_NUM_TABLE_ENTRIES][4] = {
+    // Entry 1 : ForwardPkt 
+    // key :[ ipv4.dst=9aaa2010 ] 
+    {0x9a, 0xaa, 0x20, 0x10},
+    //Entry 2 : ForwardPkt
+    // key :[ ipv4.dst=cc930a03 ] 
+    {0xcc, 0x93, 0x0a, 0x03},
+    // Entry 3 : ForwardPkt
+    // key :[ ipv4.dst=6353a5ca ] 
+    {0x63, 0x53, 0xa5, 0xca},
+    // Entry 4 : ForwardPkt
+    // key :[ ipv4.dst=cc3d03d7 ]
+    {0xcc, 0x3d, 0x03, 0xd7}
+};
+
+uint8_t ForwardMasksArray[EXAMPLE_NUM_TABLE_ENTRIES][4] = {
+    // Entry 1 : ForwardPkt
+    // key :[ ipv4.dst=9aaa2010 ] 
+    {0xff, 0xff, 0xff, 0x00},
+    //Entry 2 : ForwardPkt
+    // key :[ ipv4.dst=cc930a03 ] 
+    {0xff, 0xff, 0xff, 0x00},
+    // Entry 3 : ForwardPkt
+    // key :[ ipv4.dst=6353a5ca ] 
+    {0xff, 0xff, 0xff, 0x00},
+    // Entry 4 : ForwardPkt
+    // key :[ ipv4.dst=cc3d03d7 ]
+    //{0x00, 0x00, 0x00, 0x00}
+    {0xff, 0xff, 0xff, 0x00}
+};
+
+/*
+ * The corresponding Action Parameters used to create the loop
+ * Note: The Action Parameters are concatenated with the Action Id to construct the table response of the Match-Action unit
+ */
+uint8_t ForwardActionParamsArray[EXAMPLE_NUM_TABLE_ENTRIES][1] = {
+    // Entry 1 : ForwardPkt
+    // response :[0x0]
+    {0x1},
+    // Entry 2 : ForwardPkt
+    // response :[0x0]
+    {0x1},
+    // Entry 3 : ForwardPkt
+    //response :[0x0]
+    {0x1},
+    // Entry 4 : ForwardPkt
+    // response :[0x0]
+    {0x1},
+};
+
+uint8_t VlanKeyArray[VLAN_TABLE_ENTRIES][4] = {
+    // // Entry 1 : ForwardPkt 
+    // // key :[ ipv4.dst=9aaa2010 ] 
+    // {0x9a, 0xaa, 0x20, 0x10},
+    // //Entry 2 : ForwardPkt
+    // // key :[ ipv4.dst=cc930a03 ] 
+    // {0xcc, 0x93, 0x0a, 0x03},
+    // // Entry 3 : ForwardPkt
+    // // key :[ ipv4.dst=6353a5ca ] 
+    // {0x63, 0x53, 0xa5, 0xca},
+    // // Entry 4 : ForwardPkt
+    // // key :[ ipv4.dst=cc3d03d7 ]
+    // {0xcc, 0x3d, 0x03, 0xd7},
+    {0x6B, 0x24, 0x6D, 0x55},
+    {0x0E, 0xA8, 0xA7, 0xA2},
+    {0x91, 0xB0, 0xA2, 0x48},
+    {0xE5, 0xCB, 0x77, 0x84}
+};
+
+uint8_t VlanMasksArray[VLAN_TABLE_ENTRIES][4] = {
+    {0xff, 0xff, 0xff, 0x00},
+    {0xff, 0xff, 0xff, 0x00},
+    {0xff, 0xff, 0xff, 0x00},
+    {0xff, 0xff, 0xff, 0x00}
+    // {0x00, 0x00, 0x00, 0x00},
+    // {0x00, 0x00, 0x00, 0x00},
+    // {0x00, 0x00, 0x00, 0x00},
+    // {0x00, 0x00, 0x00, 0x00}
+};
+
+uint8_t VlanActionParamsArray[VLAN_TABLE_ENTRIES][2] = {
+    // {0x0A, 0x97},
+    // {0x0A, 0x97},
+    // {0x0A, 0x97},
+    // {0x0A, 0x97},
+    {0x0A, 0x98},
+    {0x0A, 0x98},
+    {0x0A, 0x98},
+    {0x0A, 0x98}
+};
+
+
+
+// sysfile path to open-nic-shell PCIe device
+int sysfile;
+
+
+/****************************************************************************************************************************************************/
+/* SECTION: Entry point */
+/****************************************************************************************************************************************************/
+
+
+int main(void)
+{
+    XilVitisNetP4EnvIf EnvIf;
+    XilVitisNetP4TargetCtx ForwardTargetCtx;
+    XilVitisNetP4ReturnType Result;
+    uint32_t Index;
+    uint32_t ActionId;
+    uint8_t ReadParamActionsBuffer[2];
+    uint32_t ReadActionId;
+    uint32_t ReadPriority;
+    uint8_t Masks;
+
+    ExampleUserContext *UserCtxPtr;
+    XilVitisNetP4TableCtx *ForwardTableCtxPtr, *ModHdrTableCtxPtr;
+
+    XilVitisNetP4EnvIf *EnvIfPtr = &EnvIf;
+    XilVitisNetP4TargetCtx *ForwardTargetCtxPtr = &ForwardTargetCtx;
+    //XilVitisNetP4TargetCtx *ModHdrTargetCtxPtr = &ForwardTargetCtx;
+
+    UserCtxPtr = calloc(1, sizeof(ExampleUserContext));
+    if (UserCtxPtr == NULL)
+    {
+       printf("ERROR: Failed to allocate memory\n\r");
+       return -1;
+    }
+    UserCtxPtr->VitisNetP4Address = 0x100000;
+
+    /*
+     * Setting up function pointers to the Read and Write function, etc.
+     */
+    (EnvIfPtr)->WordWrite32 = env_write;
+    (EnvIfPtr)->WordRead32 = env_read;
+    (EnvIfPtr)->LogError = example_log_info;
+    (EnvIfPtr)->LogInfo = example_log_info;
+    (EnvIfPtr)->UserCtx = (XilVitisNetP4UserCtxType)UserCtxPtr;
+
+    printf("Opening pcimem device \n\r");
+    device_open(sysfile_path);
+    sleep(1);
+    uint32_t readData;
+
+    // writes to enable the CMAC port 0
+    printf("Enabling CMAC port 0: \n\r");
+    device_write(0x8014, 0x1);
+    device_write(0x800c, 0x1);
+    // read the CMAC status
+    printf("Checking CMAC port 0 link status: \n\r");
+    device_read(0x8204, &readData);
+    device_read(0x8204, &readData);
+    sleep(1);
+
+    printf("Initialize the Target Driver\n\r");
+    Result = XilVitisNetP4TargetInit(ForwardTargetCtxPtr, EnvIfPtr, &XilVitisNetP4TargetConfig_vitis_net_p4_0);
+    printf("Finish Initialize!\n\r");
+    if (Result == XIL_VITIS_NET_P4_TARGET_ERR_INCOMPATIBLE_SW_HW)
+    {
+        printf("Found IP and SW version differences:\n\r");
+        DisplayVitisNetP4Versions(ForwardTargetCtxPtr);
+        goto exit_example;
+    }
+    else if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+        goto exit_example;
     }
     
-    state parse_eth {
-        packet.extract(hdr.eth);
-        transition select(hdr.eth.type) {
-            VLAN_TYPE : parse_vlan;
-            IPV4_TYPE : parse_ipv4;
-            IPV6_TYPE : parse_ipv6;
-            default   : accept; 
+//  */
+
+//modHdr code
+
+    printf("Initialize the Target Driver\n\r");
+    Result = XilVitisNetP4TargetInit(ForwardTargetCtxPtr, EnvIfPtr, &XilVitisNetP4TargetConfig_vitis_net_p4_0);
+    printf("Finish Initialize!\n\r");
+    if (Result == XIL_VITIS_NET_P4_TARGET_ERR_INCOMPATIBLE_SW_HW)
+    {
+        printf("Found IP and SW version differences:\n\r");
+        DisplayVitisNetP4Versions(ForwardTargetCtxPtr);
+        goto exit_example;
+    }
+    else if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+        goto exit_example;
+    }
+
+    printf("Get Table Handle\n\r");
+    Result = XilVitisNetP4TargetGetTableByName(ForwardTargetCtxPtr, "modHdr", &ModHdrTableCtxPtr);
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+        goto target_exit;
+    }
+
+    printf("Get ActionId\n\r");
+    Result = XilVitisNetP4TableGetActionId(ModHdrTableCtxPtr, "modifyHeader", &ActionId);
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+        goto target_exit;
+    }
+    
+    XilVitisNetP4TableMode mode;
+    Result = XilVitisNetP4TableGetMode(ModHdrTableCtxPtr, &mode);
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+        goto target_exit;
+    }
+    printf("Table mode: %d\n\r", mode);
+
+    printf("\nInsert Tables.....");
+    for (Index = 0; Index < VLAN_TABLE_ENTRIES; Index++)
+    // Insert Table 
+    {
+        printf("Insert table entry %d\n\r", Index);
+
+        Result = XilVitisNetP4TableInsert(ModHdrTableCtxPtr,
+                                     VlanKeyArray[Index],
+                                     VlanMasksArray[Index], 
+                                     0x0, 
+                                     ActionId,
+                                     VlanActionParamsArray[Index]);
+        if (Result != XIL_VITIS_NET_P4_SUCCESS)
+        {
+            DISPLAY_ERROR(Result);
+            goto target_exit;
         }
+        //sleep(1);
     }
-    
-    state parse_vlan {
-        packet.extract(hdr.vlan);
-        transition select(hdr.vlan.tpid) {
-            VLAN_TYPE : parse_vlan;
-            IPV4_TYPE : parse_ipv4;
-            IPV6_TYPE : parse_ipv6;
-            default   : accept; 
+//
+    printf("\nTable Querying... \n\r");
+    for (Index = 0; Index < VLAN_TABLE_ENTRIES; Index++)
+    {   
+        Result = XilVitisNetP4TableGetByKey(ModHdrTableCtxPtr,
+                                       VlanKeyArray[Index],
+                                       VlanMasksArray[Index], 
+                                       &ReadPriority, 
+                                       &ReadActionId,
+                                       ReadParamActionsBuffer);
+
+        if (Result == XIL_VITIS_NET_P4_SUCCESS)
+        {
+            printf("For table entry %d the Action Parameters are 0x%02X and Action Id is %d\n\r",
+                   Index,
+                   ReadParamActionsBuffer[0],
+                   ReadActionId);
         }
-    }
-    
-    state parse_ipv4 {
-        packet.extract(hdr.ipv4);
-        verify(hdr.ipv4.version == 4 && hdr.ipv4.hdr_len >= 5, error.InvalidIPpacket);
-        packet.extract(hdr.ipv4opt, (((bit<32>)hdr.ipv4.hdr_len - 5) * 32));
-        transition select(hdr.ipv4.protocol) {
-            TCP_PROT  : parse_tcp;
-            UDP_PROT  : parse_udp;
-            default   : accept; 
-        }
-    }
-    
-    state parse_ipv6 {
-        packet.extract(hdr.ipv6);
-        verify(hdr.ipv6.version == 6, error.InvalidIPpacket);
-        transition select(hdr.ipv6.protocol) {
-            TCP_PROT  : parse_tcp;
-            UDP_PROT  : parse_udp;
-            default   : accept; 
-        } 
-    }
-
-    state parse_tcp {
-        packet.extract(hdr.tcp);
-        verify(hdr.tcp.dataOffset >= 5, error.InvalidTCPpacket);
-        packet.extract(hdr.tcpopt, (((bit<32>)hdr.tcp.dataOffset - 5) * 32));
-        transition accept;
-    }
-    
-    state parse_udp {
-        packet.extract(hdr.udp);
-        transition accept;
-    }
-}
-
-// ****************************************************************************** //
-// **************************  P R O C E S S I N G   **************************** //
-// ****************************************************************************** //
-
-control MyProcessing(inout headers hdr, 
-                     inout metadata meta, 
-                     inout standard_metadata_t smeta) {
-                      
-   // action forwardPacket(bit<9> port) {
-   //     meta.port = port;
-   // }
-
-    action modifyHeader() {
-        hdr.vlan.setValid();
-        hdr.vlan.vid = 0xA97;
-	hdr.vlan.pcp = 0;
-	hdr.vlan.cfi = 0;
-	hdr.vlan.tpid = 0x0800;
-	hdr.eth.type = 0x8100;
-        //hdr.vlan.vid = 0xA98;
-    }
-
-    action forwardPacket() {
-    }
-    
-    action dropPacket() {
-		smeta.drop = 1;
-    }
-
-    table forwardIPv4 {
-        key             = { hdr.ipv4.dst : lpm; }
-        actions         = { forwardPacket; 
-                            dropPacket; }
-        size            = 1024;
-		num_masks       = 64;
-        default_action  = forwardPacket;
-    }
-
-  //  table forwardIPv6 {
-    //    key             = { hdr.ipv6.dst : lpm; }
-     //   actions         = { forwardPacket; 
-     //                       dropPacket; }
-     //   size            = 1024;
-      //  default_action  = forwardPacket;
-  //  }
-
-    table modHdr {
-        key = {hdr.ipv4.dst : lpm;}
-        actions = {
-            modifyHeader;
-            dropPacket;
-        }
-        size            = 1024;
-        default_action = modifyHeader;
-
-    }
-
-    apply {
-        
-        if (smeta.parser_error != error.NoError) {
-            dropPacket();
-            return;
-        }
-
-        if(hdr.ipv4.isValid()) {
-            modHdr.apply();
-        }
-        
-        
-        if (hdr.ipv4.isValid())
-            forwardIPv4.apply();
         else
-            forwardPacket();
-        
+        {
+            DISPLAY_ERROR(Result);
+            goto target_exit;
+        }
     }
-} 
+        //sleep(1);
+    
+    printf("\n Updating Tables...\n\r");
+    for (Index = 0; Index < VLAN_TABLE_ENTRIES; Index++){
+        printf("Updating the Response for table entry %d\n\r", Index);
+        Result = XilVitisNetP4TableUpdate(ModHdrTableCtxPtr,
+                                     VlanKeyArray[Index],
+                                     VlanMasksArray[Index], 
+                                     ActionId,
+                                     ReadParamActionsBuffer);
 
-// ****************************************************************************** //
-// ***************************  D E P A R S E R  ******************************** //
-// ****************************************************************************** //
-
-control MyDeparser(packet_out packet, 
-                   in headers hdr,
-                   inout metadata meta, 
-                   inout standard_metadata_t smeta) {
-    apply {
-        packet.emit(hdr.eth);
-        packet.emit(hdr.vlan);
-        packet.emit(hdr.ipv4);
-        packet.emit(hdr.ipv4opt);
-        packet.emit(hdr.ipv6);
-        packet.emit(hdr.tcp);
-        packet.emit(hdr.tcpopt);
-        packet.emit(hdr.udp);
+        if (Result != XIL_VITIS_NET_P4_SUCCESS)
+        {
+            DISPLAY_ERROR(Result);
+            goto target_exit;
+        }
     }
+
+/*
+    printf("\n Deleting Tables....\n\r");
+    for (Index = 0; Index < VLAN_TABLE_ENTRIES; Index++)
+    {
+        printf("Delete table entry %d\n\r", Index);
+        printf("The masks is %2x",VlanMasksArray[Index][1]);
+        Result = XilVitisNetP4TableDelete(ModHdrTableCtxPtr, VlanKeyArray[Index], VlanMasksArray[Index]);
+
+        if (Result == XIL_VITIS_NET_P4_SUCCESS)
+        {
+            // Not neccessary but checking if the key can be found to demo the usage //
+            Result = XilVitisNetP4TableGetByKey(ModHdrTableCtxPtr,
+                                           VlanKeyArray[Index],
+                                           VlanMasksArray[Index],
+                                           &ReadPriority, 
+                                           &ReadActionId,
+                                           ReadParamActionsBuffer);
+            if (Result != XIL_VITIS_NET_P4_CAM_ERR_KEY_NOT_FOUND)
+            {
+                printf("Error table entry %d is present\n\r", Index);
+            }
+            else
+            {
+                printf("\nTable entry %d successfully deleted\n\r", Index);
+            }
+        }
+        else
+        {
+            DISPLAY_ERROR(Result);
+            goto target_exit;
+        }
+    }
+*/
+//forward code
+
+printf("Get Table Handle\n\r");
+    Result = XilVitisNetP4TargetGetTableByName(ForwardTargetCtxPtr, "forwardIPv4", &ForwardTableCtxPtr);
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+        goto target_exit;
+    }
+
+    printf("Get ActionId\n\r");
+    Result = XilVitisNetP4TableGetActionId(ForwardTableCtxPtr, "dropPacket", &ActionId);
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+        goto target_exit;
+    }
+
+    //XilVitisNetP4TableMode modef;
+    Result = XilVitisNetP4TableGetMode(ForwardTableCtxPtr, &mode);
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+        goto target_exit;
+    }
+    printf("Table mode: %d\n\r", mode);
+
+    printf("\nInsert Tables.....");
+    for (Index = 0; Index < EXAMPLE_NUM_TABLE_ENTRIES; Index++)
+    // Insert Table 
+    {
+        printf("Insert table entry %d\n\r", Index);
+
+        Result = XilVitisNetP4TableInsert(ForwardTableCtxPtr,
+                                     ForwardKeyArray[Index],
+                                     ForwardMasksArray[Index], 
+                                     0x1, 
+                                     ActionId,
+                                     ForwardActionParamsArray[Index]);
+        if (Result != XIL_VITIS_NET_P4_SUCCESS)
+        {
+            DISPLAY_ERROR(Result);
+            goto target_exit;
+        }
+        //sleep(1);
+    }
+//
+    printf("\nTable Querying... \n\r");
+    for (Index = 0; Index < EXAMPLE_NUM_TABLE_ENTRIES; Index++)
+    {   
+        Result = XilVitisNetP4TableGetByKey(ForwardTableCtxPtr,
+                                       ForwardKeyArray[Index],
+                                       ForwardMasksArray[Index], 
+                                       &ReadPriority, 
+                                       &ReadActionId,
+                                       ReadParamActionsBuffer);
+
+        if (Result == XIL_VITIS_NET_P4_SUCCESS)
+        {
+            printf("For table entry %d the Action Parameters are 0x%02X and Action Id is %d\n\r",
+                   Index,
+                   ReadParamActionsBuffer[0],
+                   ReadActionId);
+        }
+        else
+        {
+            DISPLAY_ERROR(Result);
+            goto target_exit;
+        }
+    }
+        //sleep(1);
+    
+    printf("\n Updating Tables...\n\r");
+    for (Index = 0; Index < EXAMPLE_NUM_TABLE_ENTRIES; Index++){
+        printf("Updating the Response for table entry %d\n\r", Index);
+        Result = XilVitisNetP4TableUpdate(ForwardTableCtxPtr,
+                                     ForwardKeyArray[Index],
+                                     ForwardMasksArray[Index], 
+                                     ActionId,
+                                     ReadParamActionsBuffer);
+
+        if (Result != XIL_VITIS_NET_P4_SUCCESS)
+        {
+            DISPLAY_ERROR(Result);
+            goto target_exit;
+        }
+    }
+/*
+    printf("\n Deleting Tables....\n\r");
+    for (Index = 0; Index < EXAMPLE_NUM_TABLE_ENTRIES; Index++)
+    {
+        printf("Delete table entry %d\n\r", Index);
+        printf("The masks is %2x", ForwardMasksArray[Index][1]);
+        Result = XilVitisNetP4TableDelete(ForwardTableCtxPtr, ForwardKeyArray[Index], ForwardMasksArray[Index]);
+
+        if (Result == XIL_VITIS_NET_P4_SUCCESS)
+        {
+            // Not neccessary but checking if the key can be found to demo the usage //
+            Result = XilVitisNetP4TableGetByKey(ForwardTableCtxPtr,
+                                           ForwardKeyArray[Index],
+                                           ForwardMasksArray[Index],
+                                           &ReadPriority, 
+                                           &ReadActionId,
+                                           ReadParamActionsBuffer);
+            if (Result != XIL_VITIS_NET_P4_CAM_ERR_KEY_NOT_FOUND)
+            {
+                printf("Error table entry %d is present\n\r", Index);
+            }
+            else
+            {
+                printf("\nTable entry %d successfully deleted\n\r", Index);
+            }
+        }
+        else
+        {
+            DISPLAY_ERROR(Result);
+            goto target_exit;
+        }
+    }
+*/
+target_exit:
+    printf ("target_exit: \n");
+    printf("Closing pcimem device\n");
+    device_close();
+    Result = XilVitisNetP4TargetExit(ForwardTargetCtxPtr);
+
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        DISPLAY_ERROR(Result);
+    }
+
+exit_example:
+    printf ("exit_example:\n");
+    free(EnvIfPtr->UserCtx);
+    return Result;
+
 }
 
-// ****************************************************************************** //
-// *******************************  M A I N  ************************************ //
-// ****************************************************************************** //
 
-XilinxPipeline(
-    MyParser(), 
-    MyProcessing(), 
-    MyDeparser()
-) main;
+/****************************************************************************************************************************************************/
+/* SECTION: Local function definitions */
+/****************************************************************************************************************************************************/
+static void DisplayVitisNetP4Versions(XilVitisNetP4TargetCtx *CtxPtr)
+{
+    XilVitisNetP4ReturnType Result;
+    XilVitisNetP4Version SwVersion;
+    XilVitisNetP4Version IpVersion;
+    XilVitisNetP4TargetBuildInfoCtx *BuildInfoCtxPtr;
+
+    Result =  XilVitisNetP4TargetGetSwVersion(CtxPtr, &SwVersion);
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        return;
+    }
+
+    /* The BuildInfo Driver provides access to the IP Version if present */
+    Result = XilVitisNetP4TargetGetBuildInfoDrv(CtxPtr, &BuildInfoCtxPtr);
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        return;
+    }
+
+    Result = XilVitisNetP4TargetBuildInfoGetIpVersion(BuildInfoCtxPtr, &IpVersion);
+    if (Result != XIL_VITIS_NET_P4_SUCCESS)
+    {
+        return;
+    }
+
+    printf("----VitisNetP4Runtime Software Version\n");
+    printf("\t\t Major = %d\n", SwVersion.Major);
+    printf("\t\t Minor = %d\n", SwVersion.Minor);
+    printf("\n");
+
+    printf("----VitisNetP4IP Version\n");
+    printf("\t\t Major = %d\n", IpVersion.Major);
+    printf("\t\t Minor = %d\n", IpVersion.Minor);
+}
+
+
+XilVitisNetP4ReturnType XilVitisNetP4WordLogStub(XilVitisNetP4EnvIf *EnvIfPtr, const char *MessagePtr)
+{
+    if (EnvIfPtr == NULL)
+    {
+        return XIL_VITIS_NET_P4_GENERAL_ERR_NULL_PARAM;
+    }
+
+    if (MessagePtr == NULL)
+    {
+        return XIL_VITIS_NET_P4_GENERAL_ERR_NULL_PARAM;
+    }
+
+    return XIL_VITIS_NET_P4_SUCCESS;
+}
+
+XilVitisNetP4ReturnType example_log_info(XilVitisNetP4EnvIf *EnvIfPtr, const char *MessagePtr)
+{
+    if (EnvIfPtr == NULL)
+    {
+        return XIL_VITIS_NET_P4_GENERAL_ERR_NULL_PARAM;
+    }
+
+    if (MessagePtr == NULL)
+    {
+        return XIL_VITIS_NET_P4_GENERAL_ERR_NULL_PARAM;
+    }
+
+    printf(MessagePtr);
+
+    return XIL_VITIS_NET_P4_SUCCESS;
+}
+
+
+inline int device_open(char *sys_file)
+{
+    if ((sysfile = open(sys_file, O_RDWR | O_SYNC)) < 0)
+    {
+        fprintf(stderr, "Error openning sysfile: %s\n", strerror(errno));
+        return -1;
+    } else
+        return 0;
+}
+
+inline int device_close()
+{
+    return close(sysfile);
+}
+
+
+XilVitisNetP4ReturnType env_write(XilVitisNetP4EnvIf *EnvIfPtr, XilVitisNetP4AddressType Address, uint32_t WriteValue) {
+    ExampleUserContext *UserCtxPtr;
+    //printf("Writing: ");
+    if (EnvIfPtr == NULL)
+    {
+        return XIL_VITIS_NET_P4_GENERAL_ERR_NULL_PARAM;
+    }
+    else if (EnvIfPtr->UserCtx == NULL)
+    {
+        return XIL_VITIS_NET_P4_GENERAL_ERR_INTERNAL_ASSERTION;
+    }
+    UserCtxPtr = (ExampleUserContext *)EnvIfPtr->UserCtx;
+
+    void *region;
+    void *virtual;
+    off_t addr = (off_t)UserCtxPtr->VitisNetP4Address + Address;
+    off_t offset = addr & (-4096);
+    off_t rem = addr & 0xFFF;
+    size_t length = 4096;
+
+    //printf("Writing:");
+    region = mmap(0, length,  PROT_WRITE, MAP_SHARED, sysfile, offset);
+    if (region == MAP_FAILED)
+    {
+        fprintf(stderr, "Error calling mmap: mapping failed\n");
+        exit(-1);
+    }
+    virtual = region + rem;
+    *((uint32_t *)virtual) = WriteValue;
+    
+    if(munmap(region, length) < 0)
+    {
+        fprintf(stderr, "Error calling munmap: %s\n", strerror(errno));
+        exit(-1);
+    }
+
+    #ifdef _DEBUG
+    printf("Wrote 0x%0*X to 0x%lX;\n", 8, WriteValue, addr);
+    #endif
+
+    return XIL_VITIS_NET_P4_SUCCESS;
+}
+
+XilVitisNetP4ReturnType env_read(XilVitisNetP4EnvIf *EnvIfPtr, XilVitisNetP4AddressType Address, uint32_t *ReadValuePtr) {
+    ExampleUserContext *UserCtxPtr;
+    if (EnvIfPtr == NULL || ReadValuePtr == NULL)
+    {
+        return XIL_VITIS_NET_P4_GENERAL_ERR_NULL_PARAM;
+    }
+    else if (EnvIfPtr->UserCtx == NULL)
+    {
+        return XIL_VITIS_NET_P4_GENERAL_ERR_INTERNAL_ASSERTION;
+    }
+
+    UserCtxPtr = (ExampleUserContext *) EnvIfPtr->UserCtx;
+
+    void *region;
+    void *virtual;
+    off_t addr = (off_t)UserCtxPtr->VitisNetP4Address + Address;
+    off_t offset = addr & (-4096);
+    off_t rem = addr & 0xFFF;
+    size_t length = 4096;
+
+    //printf("Reading:");
+    region = mmap(0, length, PROT_READ , MAP_SHARED, sysfile, offset);
+    if (region == MAP_FAILED)
+    {
+        fprintf(stderr, "Error calling mmap: mapping failed\n");
+        exit(-1);
+    }
+    virtual = region + rem;
+    *ReadValuePtr = *((uint32_t *)virtual);
+
+    if(munmap(region, length) < 0)
+    {
+        fprintf(stderr, "Error calling munmap: %s\n", strerror(errno));
+        exit(-1);
+    }
+    //sleep(1);
+
+    #ifdef _DEBUG
+    printf("Read value at offset (%zu): 0x%0*X\n", addr, 8, *ReadValuePtr);
+    #endif
+
+    return XIL_VITIS_NET_P4_SUCCESS;
+}
+
+
+void device_write(uint32_t address, uint32_t data) {
+    void *region;
+    void *virtual;
+    off_t addr = (off_t)address;
+    off_t offset = addr & (-4096);
+    off_t rem = addr & 0xFFF;
+    size_t length = 4096;
+
+    //printf("Writing:");
+    region = mmap(0, length, PROT_WRITE, MAP_SHARED, sysfile, offset);
+    if (region == MAP_FAILED)
+    {
+        fprintf(stderr, "Error calling mmap: mapping failed\n");
+        exit(-1);
+    }
+    virtual = region + rem;
+    *((uint32_t *)virtual) = data;
+
+    if(munmap(region, length) < 0)
+    {
+        fprintf(stderr, "Error calling munmap: %s\n", strerror(errno));
+        exit(-1);
+    }
+    #ifdef _DEBUG
+    printf("Wrote 0x%0*X to 0x%X;\n", 8, data, address);
+    #endif
+}
+
+uint32_t device_read(uint32_t address, uint32_t *data) {
+    void *region;
+    void *virtual;
+    off_t addr = (off_t)address;
+    off_t offset = addr & (-4096);
+    off_t rem = addr & 0xFFF;
+    size_t length = 4096;
+
+    //printf("Reading:");
+    region = mmap(0, length, PROT_READ , MAP_SHARED, sysfile, offset);
+    if (region == MAP_FAILED)
+    {
+        fprintf(stderr, "Error calling mmap: mapping failed\n");
+        exit(-1);
+    }
+    virtual = region + rem;
+    *data = *((uint32_t *)virtual);
+
+    if(munmap(region, length) < 0)
+    {
+        fprintf(stderr, "Error calling munmap: %s\n", strerror(errno));
+        exit(-1);
+    }
+    #ifdef _DEBUG
+    printf("Read value at offset (%u): 0x%0*X\n", address, 8, *data);
+    #endif
+    //sleep(1);
+    return 0;
+}
