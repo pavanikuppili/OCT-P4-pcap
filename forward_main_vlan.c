@@ -73,7 +73,7 @@
  /****************************************************************************************************************************************************/
  
  #define EXAMPLE_NUM_TABLE_ENTRIES (4)
- #define VLAN_TABLE_ENTRIES (4)
+ #define VLAN_TABLE_ENTRIES (1)
  
  #define DISPLAY_ERROR(ErrorCode)  printf("Error Code is value %s\n", XilVitisNetP4ReturnTypeToString(ErrorCode))
  
@@ -169,7 +169,7 @@
      {0x1},
  };
  
- uint8_t VlanKeyArray[VLAN_TABLE_ENTRIES][1] = {
+ uint8_t VlanKeyArray[VLAN_TABLE_ENTRIES][2] = {
      // // Entry 1 : ForwardPkt 
      // // key :[ ipv4.dst=9aaa2010 ] 
      // {0x9a, 0xaa, 0x20, 0x10},
@@ -185,7 +185,7 @@
      {0x0A, 0x98},
  };
  
- uint8_t VlanMasksArray[VLAN_TABLE_ENTRIES][1] = {
+ uint8_t VlanMasksArray[VLAN_TABLE_ENTRIES][2] = {
     //  {0xff, 0xff, 0xff, 0x00},
     //  {0xff, 0xff, 0xff, 0x00},
     //  {0xff, 0xff, 0xff, 0x00},
@@ -197,7 +197,7 @@
      {0x0f, 0xff}
  };
  
- uint8_t VlanActionParamsArray[VLAN_TABLE_ENTRIES][1] = {
+ uint8_t VlanActionParamsArray[VLAN_TABLE_ENTRIES][2] = {
      {0x0A, 0x97},
     //  {0x0A, 0x97},
     //  {0x0A, 0x97},
