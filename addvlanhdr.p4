@@ -38,7 +38,7 @@
  * table is setup to be implemented with an ternary CAM and the IPv4 table 
  * with a semi-ternary CAM.
  *
-*/
+ */
 
 typedef bit<48>  MacAddr;
 typedef bit<32>  IPv4Addr;
@@ -160,11 +160,11 @@ parser MyParser(packet_in packet,
                 out headers hdr, 
                 inout metadata meta, 
                 inout standard_metadata_t smeta) {
-
+    
     state start {
         transition parse_eth;
-}
-
+    }
+    
     state parse_eth {
         packet.extract(hdr.eth);
         transition select(hdr.eth.type) {
@@ -172,9 +172,9 @@ parser MyParser(packet_in packet,
             IPV4_TYPE : parse_ipv4;
             IPV6_TYPE : parse_ipv6;
             default   : accept; 
-}
-}
-
+        }
+    }
+    
     state parse_vlan {
         packet.extract(hdr.vlan);
         transition select(hdr.vlan.tpid) {
@@ -182,9 +182,9 @@ parser MyParser(packet_in packet,
             IPV4_TYPE : parse_ipv4;
             IPV6_TYPE : parse_ipv6;
             default   : accept; 
-}
-}
-
+        }
+    }
+    
     state parse_ipv4 {
         packet.extract(hdr.ipv4);
         verify(hdr.ipv4.version == 4 && hdr.ipv4.hdr_len >= 5, error.InvalidIPpacket);
@@ -193,8 +193,8 @@ parser MyParser(packet_in packet,
             TCP_PROT  : parse_tcp;
             UDP_PROT  : parse_udp;
             default   : accept; 
-}
-}
+        }
+    }
     
     state parse_ipv6 {
         packet.extract(hdr.ipv6);
@@ -211,12 +211,12 @@ parser MyParser(packet_in packet,
         verify(hdr.tcp.dataOffset >= 5, error.InvalidTCPpacket);
         packet.extract(hdr.tcpopt, (((bit<32>)hdr.tcp.dataOffset - 5) * 32));
         transition accept;
-}
+    }
     
     state parse_udp {
         packet.extract(hdr.udp);
         transition accept;
-}
+    }
 }
 
 // ****************************************************************************** //
@@ -239,11 +239,11 @@ control MyProcessing(inout headers hdr,
 	hdr.vlan.tpid = 0x0800;
 	hdr.eth.type = 0x8100;
         //hdr.vlan.vid = 0xA98;
-}
+    }
 
     action forwardPacket() {
-}
-
+    }
+    
     action dropPacket() {
 		smeta.drop = 1;
     }
@@ -266,15 +266,15 @@ control MyProcessing(inout headers hdr,
   //  }
 
     table modHdr {
-        key = {hdr.ipv4.dst : lpm;}
+        key = {hdr.vlan.vid : lpm;}
         actions = {
             modifyHeader;
             dropPacket;
         }
         size            = 1024;
-        default_action = modifyHeader;
+        default_action = dropPacket;
 
-}
+    }
 
     apply {
         
@@ -283,7 +283,7 @@ control MyProcessing(inout headers hdr,
             return;
         }
 
-        if(hdr.ipv4.isValid()) {
+        if(hdr.vlan.isValid()) {
             modHdr.apply();
         }
         
@@ -313,7 +313,7 @@ control MyDeparser(packet_out packet,
         packet.emit(hdr.tcp);
         packet.emit(hdr.tcpopt);
         packet.emit(hdr.udp);
-}
+    }
 }
 
 // ****************************************************************************** //
