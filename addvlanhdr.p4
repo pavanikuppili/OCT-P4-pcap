@@ -130,6 +130,7 @@ header udp_t {
 struct headers {
     eth_mac_t    eth;
     vlan_t       vlan;
+    vlan_t       new_vlan;
     ipv4_t       ipv4;
     ipv4_opt_t   ipv4opt;
     ipv6_t       ipv6;
@@ -178,7 +179,6 @@ parser MyParser(packet_in packet,
     state parse_vlan {
         packet.extract(hdr.vlan);
         transition select(hdr.vlan.tpid) {
-            VLAN_TYPE : parse_vlan;
             IPV4_TYPE : parse_ipv4;
             IPV6_TYPE : parse_ipv6;
             default   : accept; 
@@ -232,12 +232,13 @@ control MyProcessing(inout headers hdr,
    // }
 
     action modifyHeader() {
-        hdr.vlan.setValid();
-        hdr.vlan.vid = 0xA97;
-	hdr.vlan.pcp = 0;
-	hdr.vlan.cfi = 0;
-	hdr.vlan.tpid = 0x0800;
-	hdr.eth.type = 0x8100;
+        hdr.vlan.setInvalid();
+        hdr.new_vlan.setValid();
+        hdr.new_vlan.vid = 0xA97;
+	    hdr.new_vlan.pcp = 1; 
+	    hdr.new_vlan.cfi = 0;
+	    hdr.new_vlan.tpid = 0x0800;
+	    hdr.eth.type = 0x8100;
         //hdr.vlan.vid = 0xA98;
     }
 
@@ -266,7 +267,7 @@ control MyProcessing(inout headers hdr,
   //  }
 
     table modHdr {
-        key = {hdr.vlan.vid : lpm;}
+        key = {hdr.vlan.vid: lpm;}
         actions = {
             modifyHeader;
             dropPacket;
@@ -282,16 +283,17 @@ control MyProcessing(inout headers hdr,
             dropPacket();
             return;
         }
-
-        if(hdr.vlan.isValid()) {
+        
+        if (hdr.ipv4.isValid()) {	
             modHdr.apply();
         }
         
-        
-        if (hdr.ipv4.isValid())
+        if (hdr.ipv4.isValid()) {	
             forwardIPv4.apply();
-        else
-            forwardPacket();
+        }
+        else {
+	        forwardPacket();
+        }
         
     }
 } 
@@ -307,6 +309,7 @@ control MyDeparser(packet_out packet,
     apply {
         packet.emit(hdr.eth);
         packet.emit(hdr.vlan);
+        packet.emit(hdr.new_vlan);
         packet.emit(hdr.ipv4);
         packet.emit(hdr.ipv4opt);
         packet.emit(hdr.ipv6);
